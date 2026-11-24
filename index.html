@@ -6,11 +6,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>METO Racing – Probíhá aktualizace</title>
 
-    <!-- Firebase SDK (App + Analytics + Firestore databáze) -->
+    <!-- Firebase SDK (App + Analytics + Auth + Firestore databáze) -->
     <script type="module">
       import { initializeApp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
       import { getAnalytics } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-analytics.js";
-      import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
+      import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js";
+      import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
 
       const firebaseConfig = {
         apiKey: "AIzaSyApAujYoM1eoipNGW5HI1W1ryn7F0fKdAU",
@@ -24,19 +25,82 @@
 
       const app = initializeApp(firebaseConfig);
       const analytics = getAnalytics(app);
+      const auth = getAuth(app);
+      const provider = new GoogleAuthProvider();
       const db = getFirestore(app);
 
-      // Zpřístupnění funkcí pro zbytek hry
+      let currentUser = null;
+      let currentNickname = "";
+
+      function defaultNicknameFromGoogle(user) {
+          if (!user || !user.displayName) return "Jezdec";
+          // Jako výchozí návrh vezme jen křestní jméno, aby se nepropisovalo celé příjmení
+          return user.displayName.trim().split(/\s+/)[0].substring(0, 16) || "Jezdec";
+      }
+
       window.metoDB = {
-          saveScore: async (playerName, carName, timeMs) => {
-              if (!playerName || playerName.trim() === '') playerName = 'Anonym';
+          getUser: () => currentUser,
+          getNickname: () => currentNickname,
+          loginGoogle: async () => {
               try {
-                  await addDoc(collection(db, "leaderboard"), {
-                      name: playerName.trim().substring(0, 16),
-                      car: carName,
-                      time: timeMs,
-                      createdAt: serverTimestamp()
-                  });
+                  await signInWithPopup(auth, provider);
+              } catch (e) {
+                  console.error("Chyba přihlášení přes Google:", e);
+                  alert("Přihlášení se nezdařilo: " + e.message);
+              }
+          },
+          logoutGoogle: async () => {
+              try {
+                  await signOut(auth);
+              } catch (e) {
+                  console.error("Chyba při odhlášení:", e);
+              }
+          },
+          saveNickname: async (newNick) => {
+              if (!currentUser) return false;
+              const clean = newNick.trim().substring(0, 16);
+              if (!clean) return false;
+              currentNickname = clean;
+              try {
+                  // Uložíme přezdívku do profilu hráče
+                  await setDoc(doc(db, "profiles", currentUser.uid), {
+                      nickname: clean,
+                      updatedAt: serverTimestamp()
+                  }, { merge: true });
+
+                  // Pokud už má hráč záznam v žebříčku, aktualizujeme mu v něm přezdívku
+                  const lbRef = doc(db, "leaderboard", currentUser.uid);
+                  const lbSnap = await getDoc(lbRef);
+                  if (lbSnap.exists()) {
+                      await updateDoc(lbRef, {
+                          name: clean,
+                          updatedAt: serverTimestamp()
+                      });
+                  }
+                  if (window.onAuthUIUpdate) window.onAuthUIUpdate(currentUser, currentNickname);
+                  return true;
+              } catch (e) {
+                  console.error("Chyba při ukládání přezdívky:", e);
+                  alert("Nepodařilo se uložit přezdívku. Zkontroluj pravidla databáze Firestore.");
+                  return false;
+              }
+          },
+          saveScore: async (carName, timeMs) => {
+              if (!currentUser) return;
+              const nickToSave = (currentNickname || defaultNicknameFromGoogle(currentUser)).substring(0, 16);
+              try {
+                  const userDocRef = doc(db, "leaderboard", currentUser.uid);
+                  const existing = await getDoc(userDocRef);
+                  if (!existing.exists() || timeMs < existing.data().time) {
+                      await setDoc(userDocRef, {
+                          uid: currentUser.uid,
+                          name: nickToSave,
+                          photoURL: currentUser.photoURL || '',
+                          car: carName,
+                          time: timeMs,
+                          updatedAt: serverTimestamp()
+                      });
+                  }
               } catch (e) {
                   console.error("Chyba při ukládání času do žebříčku:", e);
               }
@@ -54,7 +118,26 @@
           }
       };
 
-      // Spuštění naslouchání změnám hned po načtení
+      onAuthStateChanged(auth, async (user) => {
+          currentUser = user;
+          if (user) {
+              currentNickname = defaultNicknameFromGoogle(user);
+              try {
+                  const profSnap = await getDoc(doc(db, "profiles", user.uid));
+                  if (profSnap.exists() && profSnap.data().nickname) {
+                      currentNickname = profSnap.data().nickname;
+                  }
+              } catch (e) {
+                  console.warn("Profil zatím neexistuje nebo není čitelný:", e);
+              }
+          } else {
+              currentNickname = "";
+          }
+          if (window.onAuthUIUpdate) {
+              window.onAuthUIUpdate(user, currentNickname);
+          }
+      });
+
       if (window.initLeaderboardListener) {
           window.initLeaderboardListener();
       }
@@ -160,30 +243,119 @@
             margin: 0 0 1.5rem 0;
         }
 
-        /* Zadání přezdívky na úvodní stránce */
-        .player-setup {
+        /* Google přihlášení a herní přezdívka */
+        .auth-box {
             display: flex;
-            justify-content: center;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 1.5rem;
+        }
+
+        .google-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            background-color: #ffffff;
+            color: #1f2937;
+            border: none;
+            padding: 0.75rem 1.4rem;
+            font-size: 0.98rem;
+            font-weight: 600;
+            border-radius: 10px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            transition: transform 0.15s, background-color 0.15s;
+        }
+
+        .google-btn:hover {
+            background-color: #f1f5f9;
+            transform: translateY(-1px);
+        }
+
+        .user-profile-card {
+            display: flex;
+            flex-direction: column;
             align-items: center;
             gap: 10px;
-            margin-bottom: 1.25rem;
-            flex-wrap: wrap;
-        }
-
-        .player-setup input {
             background: #131b2e;
             border: 1px solid #334155;
-            color: #fff;
-            padding: 0.75rem 1rem;
-            border-radius: 10px;
-            font-size: 1rem;
-            outline: none;
-            width: 220px;
-            text-align: center;
+            padding: 1rem 1.25rem;
+            border-radius: 14px;
+            width: 100%;
+            max-width: 460px;
         }
 
-        .player-setup input:focus {
+        .user-profile-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            gap: 10px;
+        }
+
+        .user-avatar {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 1px solid #ff0000;
+        }
+
+        .nickname-row {
+            display: flex;
+            gap: 8px;
+            width: 100%;
+        }
+
+        .nickname-input {
+            flex: 1;
+            padding: 0.55rem 0.8rem;
+            border-radius: 8px;
+            border: 1px solid #475569;
+            background: #0b0f19;
+            color: #fff;
+            font-size: 0.95rem;
+            outline: none;
+        }
+
+        .nickname-input:focus {
             border-color: #ff0000;
+        }
+
+        .save-nick-btn {
+            background: #ff0000;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 0.55rem 1rem;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+
+        .save-nick-btn:hover {
+            background: #cc0000;
+        }
+
+        .logout-link {
+            background: none;
+            border: 1px solid #475569;
+            color: #94a3b8;
+            font-size: 0.8rem;
+            padding: 4px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        .logout-link:hover {
+            color: #fff;
+            border-color: #94a3b8;
+        }
+
+        .auth-note {
+            font-size: 0.85rem;
+            color: #64748b;
         }
 
         .play-btn {
@@ -243,6 +415,19 @@
 
         .home-leaderboard tr:last-child td {
             border-bottom: none;
+        }
+
+        .player-cell {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .mini-avatar {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            object-fit: cover;
         }
 
         .rank-1 { color: #ffd700; font-weight: bold; }
@@ -500,11 +685,10 @@
         }
         .menu-panel h2 { margin: 0 0 4px; letter-spacing: 3px; color: #ff3b30; }
         .section-title { margin: 18px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: #888; }
-        .menu-input {
-            width: 100%; padding: 10px 12px; background: #1c1c26; border: 2px solid #2c2c3a;
-            border-radius: 10px; color: #fff; font: inherit; outline: none;
+        .menu-account-box {
+            display: flex; flex-direction: column; gap: 10px;
+            padding: 12px 14px; background: #1c1c26; border: 2px solid #2c2c3a; border-radius: 12px;
         }
-        .menu-input:focus { border-color: #00d2ff; }
         .car-card {
             display: flex; gap: 14px; align-items: center; padding: 12px 14px; margin-bottom: 8px;
             background: #1c1c26; border: 2px solid #2c2c3a; border-radius: 12px; cursor: pointer;
@@ -555,11 +739,21 @@
             
             <p class="subtitle">
                 Právě nasazujeme masivní update fyziky, nových tratí a herních režimů. 
-                Brzy opět vyrážíme na trať! Zadej svou přezdívku a vyzkoušej aktuální verzi – tvé nejlepší kolo se uloží do globálního žebříčku:
+                Přihlas se přes Google, nastav si svou herní přezdívku a zapiš svůj čas do globální tabulky TOP 10:
             </p>
 
-            <div class="player-setup">
-                <input type="text" id="home-player-name" maxlength="16" placeholder="Tvoje přezdívka (např. RacerCZ)">
+            <!-- Google účet + vlastní přezdívka -->
+            <div class="auth-box" id="home-auth-box">
+                <button class="google-btn" id="btn-home-google-login">
+                    <svg width="18" height="18" viewBox="0 0 48 48">
+                        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                    </svg>
+                    <span>Přihlásit se přes Google</span>
+                </button>
+                <div class="auth-note">Po přihlášení si můžeš nastavit vlastní přezdívku (tvé příjmení se nikde nezobrazuje).</div>
             </div>
 
             <button class="play-btn" id="btn-launch-game">
@@ -568,7 +762,7 @@
             </button>
 
             <!-- ONLINE TOP 10 NA ÚVODNÍ STRÁNCE -->
-            <div class="changelog-header">Online žebříček – TOP 10 nejrychlejších kol</div>
+            <div class="changelog-header">Online žebříček – TOP 10 nejrychlejších jezdců</div>
             <div class="home-leaderboard">
                 <table>
                     <thead>
@@ -576,7 +770,7 @@
                             <th style="width: 40px;">#</th>
                             <th>Jezdec</th>
                             <th>Vůz</th>
-                            <th style="text-align: right;">Čas kola</th>
+                            <th style="text-align: right;">Nejlepší kolo</th>
                         </tr>
                     </thead>
                     <tbody id="home-lb-body">
@@ -772,8 +966,13 @@
                 <h2>MENU</h2>
                 <div class="menu-hint">Hra je pozastavená. Vůz vyberete kliknutím nebo klávesami 1 / 2 / 3. Změna vozu vrací auto na start.</div>
 
-                <div class="section-title">Tvoje přezdívka (pro online žebříček)</div>
-                <input type="text" id="menu-player-name" class="menu-input" maxlength="16" placeholder="Zadej přezdívku...">
+                <div class="section-title">Účet jezdce a herní přezdívka</div>
+                <div class="menu-account-box" id="menu-auth-box">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="color:#aaa; font-size:13px;">Nepřihlášený jezdec</span>
+                        <button id="btn-menu-google-login" style="background:#fff; color:#111; border-color:#fff; font-weight:bold;">Přihlásit přes Google</button>
+                    </div>
+                </div>
 
                 <div class="section-title">Výběr vozu</div>
                 <div id="car-cards"></div>
@@ -799,27 +998,100 @@
 
     <script>
         // =====================================================================
-        // SPRÁVA PŘEZDÍVKY A ONLINE ŽEBŘÍČKU TOP 10
+        // SPRÁVA GOOGLE ÚČTU, PŘEZDÍVKY A ONLINE ŽEBŘÍČKU TOP 10
         // =====================================================================
-        let playerName = localStorage.getItem('meto_player_name') || '';
-        const homeNameInput = document.getElementById('home-player-name');
-        const menuNameInput = document.getElementById('menu-player-name');
-
-        homeNameInput.value = playerName;
-        menuNameInput.value = playerName;
-
-        function updatePlayerName(val) {
-            playerName = val.trim().substring(0, 16);
-            localStorage.setItem('meto_player_name', playerName);
-            homeNameInput.value = playerName;
-            menuNameInput.value = playerName;
+        function escapeHTML(str) {
+            return String(str).replace(/[&<>'"]/g, tag => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+            }[tag]));
         }
 
-        homeNameInput.addEventListener('input', (e) => updatePlayerName(e.target.value));
-        menuNameInput.addEventListener('input', (e) => updatePlayerName(e.target.value));
+        function updateAuthUI(user, nickname) {
+            const homeAuthBox = document.getElementById('home-auth-box');
+            const menuAuthBox = document.getElementById('menu-auth-box');
 
-        // Zabrání spuštění klávesových zkratek hry při psaní přezdívky v menu
-        menuNameInput.addEventListener('keydown', (e) => e.stopPropagation());
+            if (user) {
+                const nickEsc = escapeHTML(nickname || 'Jezdec');
+                const avatar = user.photoURL
+                    ? `<img src="${escapeHTML(user.photoURL)}" class="user-avatar" alt="Avatar" referrerpolicy="no-referrer">`
+                    : '';
+
+                homeAuthBox.innerHTML = `
+                    <div class="user-profile-card">
+                        <div class="user-profile-top">
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                ${avatar}
+                                <span style="font-size:0.95rem;">Přezdívka: <strong style="color:#fff;">${nickEsc}</strong></span>
+                            </div>
+                            <button class="logout-link" id="btn-home-logout">Odhlásit</button>
+                        </div>
+                        <div class="nickname-row">
+                            <input type="text" id="home-nick-input" class="nickname-input" maxlength="16" value="${nickEsc}" placeholder="Zadej svou přezdívku...">
+                            <button class="save-nick-btn" id="btn-home-save-nick">Uložit nick</button>
+                        </div>
+                        <div class="auth-note" id="home-nick-status" style="color:#34c759;">Pod touto přezdívkou se uloží tvůj nejlepší čas do TOP 10.</div>
+                    </div>
+                `;
+                document.getElementById('btn-home-logout').addEventListener('click', () => window.metoDB && window.metoDB.logoutGoogle());
+                document.getElementById('btn-home-save-nick').addEventListener('click', async () => {
+                    const val = document.getElementById('home-nick-input').value;
+                    const ok = await window.metoDB.saveNickname(val);
+                    if (ok) {
+                        const st = document.getElementById('home-nick-status');
+                        if (st) st.textContent = 'Přezdívka uložena!';
+                    }
+                });
+
+                menuAuthBox.innerHTML = `
+                    <div style="display:flex; align-items:center; justify-content:space-between; width:100%;">
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            ${avatar}
+                            <div>
+                                <div style="font-weight:bold; color:#fff;">${nickEsc}</div>
+                                <div style="font-size:11px; color:#34c759;">Přihlášen přes Google</div>
+                            </div>
+                        </div>
+                        <button id="btn-menu-logout">Odhlásit</button>
+                    </div>
+                    <div style="display:flex; gap:8px; width:100%;">
+                        <input type="text" id="menu-nick-input" class="nickname-input" maxlength="16" value="${nickEsc}" placeholder="Herní přezdívka...">
+                        <button id="btn-menu-save-nick" style="background:#ff3b30; border-color:#ff3b30; color:#fff; font-weight:bold;">Uložit nick</button>
+                    </div>
+                `;
+                document.getElementById('btn-menu-logout').addEventListener('click', () => window.metoDB && window.metoDB.logoutGoogle());
+                document.getElementById('btn-menu-save-nick').addEventListener('click', async () => {
+                    const val = document.getElementById('menu-nick-input').value;
+                    await window.metoDB.saveNickname(val);
+                    if (document.activeElement) document.activeElement.blur();
+                });
+            } else {
+                homeAuthBox.innerHTML = `
+                    <button class="google-btn" id="btn-home-google-login">
+                        <svg width="18" height="18" viewBox="0 0 48 48">
+                            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                        </svg>
+                        <span>Přihlásit se přes Google</span>
+                    </button>
+                    <div class="auth-note">Po přihlášení si můžeš nastavit vlastní přezdívku (tvé příjmení se nikde nezobrazuje).</div>
+                `;
+                document.getElementById('btn-home-google-login').addEventListener('click', () => window.metoDB && window.metoDB.loginGoogle());
+
+                menuAuthBox.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="color:#aaa; font-size:13px;">Nepřihlášený (časy se neukládají online)</span>
+                        <button id="btn-menu-google-login" style="background:#fff; color:#111; border-color:#fff; font-weight:bold;">Přihlásit přes Google</button>
+                    </div>
+                `;
+                document.getElementById('btn-menu-google-login').addEventListener('click', () => window.metoDB && window.metoDB.loginGoogle());
+            }
+        }
+
+        window.onAuthUIUpdate = updateAuthUI;
+        document.getElementById('btn-home-google-login').addEventListener('click', () => window.metoDB && window.metoDB.loginGoogle());
+        document.getElementById('btn-menu-google-login').addEventListener('click', () => window.metoDB && window.metoDB.loginGoogle());
 
         // Sbalení / rozbalení tabulky v HUDu
         document.getElementById('toggle-hud-lb').addEventListener('click', () => {
@@ -828,12 +1100,6 @@
             tbl.classList.toggle('collapsed');
             arr.textContent = tbl.classList.contains('collapsed') ? '▶' : '▼';
         });
-
-        function escapeHTML(str) {
-            return String(str).replace(/[&<>'"]/g, tag => ({
-                '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
-            }[tag]));
-        }
 
         function renderLeaderboards(entries) {
             const homeBody = document.getElementById('home-lb-body');
@@ -847,17 +1113,20 @@
             }
 
             if (entries.length === 0) {
-                homeBody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#64748b;">Zatím žádné zajeté časy. Buď první!</td></tr>';
+                homeBody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#64748b;">Zatím žádné zajeté časy. Přihlas se přes Google a buď první!</td></tr>';
                 hudBody.innerHTML = '<tr><td style="color:#888;">Zatím žádné časy</td></tr>';
                 return;
             }
 
             homeBody.innerHTML = entries.map((row, idx) => {
                 const rankClass = idx === 0 ? 'rank-1' : (idx === 1 ? 'rank-2' : (idx === 2 ? 'rank-3' : ''));
+                const avatar = row.photoURL
+                    ? `<img src="${escapeHTML(row.photoURL)}" class="mini-avatar" alt="" referrerpolicy="no-referrer">`
+                    : '';
                 return `
                     <tr>
                         <td class="${rankClass}">${idx + 1}.</td>
-                        <td><strong>${escapeHTML(row.name || 'Anonym')}</strong></td>
+                        <td><div class="player-cell">${avatar}<strong>${escapeHTML(row.name || 'Jezdec')}</strong></div></td>
                         <td class="lb-car">${escapeHTML(row.car || 'GT')}</td>
                         <td class="lb-time">${formatTime(row.time)}</td>
                     </tr>
@@ -869,7 +1138,7 @@
                 return `
                     <tr>
                         <td style="color:${rankColor}; font-weight:bold; width:22px;">${idx + 1}.</td>
-                        <td style="max-width:95px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHTML(row.name || 'Anonym')}</td>
+                        <td style="max-width:95px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHTML(row.name || 'Jezdec')}</td>
                         <td style="color:#888; font-size:10px;">${escapeHTML((row.car || '').split(' ')[0])}</td>
                         <td style="font-family:monospace; color:#34c759; text-align:right; font-weight:bold;">${formatTime(row.time)}</td>
                     </tr>
@@ -892,10 +1161,6 @@
         const gameWrapperEl = document.getElementById('game-wrapper');
 
         function openGame() {
-            if (!playerName) {
-                const defaultName = 'Jezdec_' + Math.floor(100 + Math.random() * 900);
-                updatePlayerName(defaultName);
-            }
             maintenanceEl.classList.add('hidden');
             gameWrapperEl.classList.remove('hidden');
             gameActive = true;
@@ -1551,7 +1816,7 @@
             state.shake *= 0.9;
             state.throttle += ((keys.w ? 1 : 0) - state.throttle) * 0.2;
 
-            // Průjezd cílem a odeslání rekordu do online žebříčku
+            // Průjezd cílem a odeslání rekordu pod přezdívkou hráče do online žebříčku
             if (prev.z > 0 && state.z <= 0 && Math.abs(state.x) < halfW && state.speed > 0) {
                 const now = performance.now();
                 if (startTime === null) {
@@ -1562,10 +1827,9 @@
                         lastLapTime = lapTime;
                         if (!bestLapTimes[car.id] || lapTime < bestLapTimes[car.id]) {
                             bestLapTimes[car.id] = lapTime;
-                            // Odeslání nového osobního rekordu s tímto vozem do Firebase
-                            if (window.metoDB) {
-                                window.metoDB.saveScore(playerName, car.name, lapTime);
-                            }
+                        }
+                        if (window.metoDB && window.metoDB.getUser()) {
+                            window.metoDB.saveScore(car.name, lapTime);
                         }
                         startTime = now;
                         updateBestDisplay();
@@ -1742,10 +2006,12 @@
         document.getElementById('vol').addEventListener('change', (e) => e.target.blur());
 
         // =====================================================================
-        // 8. VSTUPY
+        // 8. VSTUPY (ignorovat zkratky při psaní přezdívky do inputu)
         // =====================================================================
         window.addEventListener('keydown', (e) => {
             if (!gameActive) return;
+            if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+
             initAudio();
             const k = e.key.toLowerCase();
             if (e.code === 'Space') e.preventDefault();
@@ -1776,6 +2042,7 @@
 
         window.addEventListener('keyup', (e) => {
             if (!gameActive) return;
+            if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
             const k = e.key.toLowerCase();
             if (e.code === 'Space') e.preventDefault();
             if (keyMap[k]) keys[keyMap[k]] = false;
