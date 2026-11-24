@@ -1,0 +1,1940 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <link rel="icon" type="image/png" href="ikona.png">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>METO Racing – Probíhá aktualizace</title>
+
+    <!-- Firebase SDK (App + Analytics + Firestore databáze) -->
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
+      import { getAnalytics } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-analytics.js";
+      import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
+
+      const firebaseConfig = {
+        apiKey: "AIzaSyApAujYoM1eoipNGW5HI1W1ryn7F0fKdAU",
+        authDomain: "meto-f237f.firebaseapp.com",
+        projectId: "meto-f237f",
+        storageBucket: "meto-f237f.firebasestorage.app",
+        messagingSenderId: "233531131302",
+        appId: "1:233531131302:web:53eeb6c3f164c844cffb67",
+        measurementId: "G-8Q9PCSFH5H"
+      };
+
+      const app = initializeApp(firebaseConfig);
+      const analytics = getAnalytics(app);
+      const db = getFirestore(app);
+
+      // Zpřístupnění funkcí pro zbytek hry
+      window.metoDB = {
+          saveScore: async (playerName, carName, timeMs) => {
+              if (!playerName || playerName.trim() === '') playerName = 'Anonym';
+              try {
+                  await addDoc(collection(db, "leaderboard"), {
+                      name: playerName.trim().substring(0, 16),
+                      car: carName,
+                      time: timeMs,
+                      createdAt: serverTimestamp()
+                  });
+              } catch (e) {
+                  console.error("Chyba při ukládání času do žebříčku:", e);
+              }
+          },
+          listenTop10: (callback) => {
+              const q = query(collection(db, "leaderboard"), orderBy("time", "asc"), limit(10));
+              onSnapshot(q, (snapshot) => {
+                  const list = [];
+                  snapshot.forEach((doc) => list.push(doc.data()));
+                  callback(list);
+              }, (error) => {
+                  console.error("Chyba načítání žebříčku (zkontroluj Firestore pravidla):", error);
+                  callback(null);
+              });
+          }
+      };
+
+      // Spuštění naslouchání změnám hned po načtení
+      if (window.initLeaderboardListener) {
+          window.initLeaderboardListener();
+      }
+    </script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #0b0f19;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            color: #f8fafc;
+        }
+
+        /* =====================================================================
+           ÚDRŽBOVÁ OBRAZOVKA (MAINTENANCE)
+           ===================================================================== */
+        #maintenance-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 3rem 1rem;
+            background-color: #0b0f19;
+            position: relative;
+            z-index: 50;
+        }
+
+        #maintenance-screen.hidden {
+            display: none;
+        }
+
+        .container {
+            max-width: 720px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .meto-logo {
+            width: 196px;
+            margin: 0 auto 1.25rem auto;
+            overflow: hidden;
+        }
+
+        .logo-top {
+            display: flex;
+            gap: 22px;
+            padding-left: 8px;
+        }
+
+        .logo-top .sq {
+            width: 28px;
+            height: 28px;
+            background-color: #ff0000;
+            flex-shrink: 0;
+        }
+
+        .logo-bottom {
+            height: 28px;
+            margin: 4px 6px 0 6px;
+            border: 1px solid rgba(255, 0, 0, 0.25);
+            background: repeating-linear-gradient(
+                90deg,
+                #ffffff 0px,
+                #ffffff 26px,
+                #ff0000 26px,
+                #ff0000 52px
+            );
+        }
+
+        .brand-title {
+            font-size: 2.5rem;
+            font-weight: 800;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin: 0 0 0.5rem 0;
+        }
+
+        .brand-title span {
+            color: #ff0000;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 0.45rem 1.2rem;
+            background-color: rgba(255, 0, 0, 0.15);
+            color: #ff4d4d;
+            border: 1px solid rgba(255, 0, 0, 0.4);
+            border-radius: 50px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 1.25rem;
+        }
+
+        .subtitle {
+            color: #94a3b8;
+            font-size: 1.05rem;
+            line-height: 1.6;
+            margin: 0 0 1.5rem 0;
+        }
+
+        /* Zadání přezdívky na úvodní stránce */
+        .player-setup {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 1.25rem;
+            flex-wrap: wrap;
+        }
+
+        .player-setup input {
+            background: #131b2e;
+            border: 1px solid #334155;
+            color: #fff;
+            padding: 0.75rem 1rem;
+            border-radius: 10px;
+            font-size: 1rem;
+            outline: none;
+            width: 220px;
+            text-align: center;
+        }
+
+        .player-setup input:focus {
+            border-color: #ff0000;
+        }
+
+        .play-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background: linear-gradient(135deg, #ff1a1a, #cc0000);
+            color: #ffffff;
+            border: none;
+            padding: 0.95rem 2rem;
+            font-size: 1.05rem;
+            font-weight: 700;
+            border-radius: 12px;
+            cursor: pointer;
+            box-shadow: 0 8px 25px rgba(255, 0, 0, 0.35);
+            transition: transform 0.15s, box-shadow 0.15s;
+            margin-bottom: 2.5rem;
+        }
+
+        .play-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 30px rgba(255, 0, 0, 0.5);
+        }
+
+        .play-btn:active {
+            transform: translateY(0);
+        }
+
+        /* Online žebříček na úvodní stránce */
+        .home-leaderboard {
+            background-color: #131b2e;
+            border: 1px solid #1e293b;
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-bottom: 2.5rem;
+            text-align: left;
+        }
+
+        .home-leaderboard table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.95rem;
+        }
+
+        .home-leaderboard th {
+            color: #94a3b8;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            padding-bottom: 0.6rem;
+            border-bottom: 1px solid #1e293b;
+        }
+
+        .home-leaderboard td {
+            padding: 0.55rem 0.25rem;
+            border-bottom: 1px solid rgba(30, 41, 59, 0.5);
+        }
+
+        .home-leaderboard tr:last-child td {
+            border-bottom: none;
+        }
+
+        .rank-1 { color: #ffd700; font-weight: bold; }
+        .rank-2 { color: #cbd5e1; font-weight: bold; }
+        .rank-3 { color: #d97706; font-weight: bold; }
+        .lb-time { font-family: monospace; font-weight: bold; color: #34c759; text-align: right; }
+        .lb-car { color: #94a3b8; font-size: 0.85rem; }
+
+        /* Rozbalovací sekce (Changelog) */
+        .changelog-header {
+            text-align: left;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #e2e8f0;
+            margin-bottom: 1rem;
+            padding-left: 0.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .changelog-header::before {
+            content: "";
+            display: inline-block;
+            width: 4px;
+            height: 18px;
+            background-color: #ff0000;
+            border-radius: 2px;
+        }
+
+        .accordion {
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+            text-align: left;
+        }
+
+        details {
+            background-color: #131b2e;
+            border: 1px solid #1e293b;
+            border-radius: 10px;
+            overflow: hidden;
+            transition: border-color 0.2s;
+        }
+
+        details[open] {
+            border-color: rgba(255, 0, 0, 0.5);
+        }
+
+        summary {
+            padding: 1rem 1.25rem;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            list-style: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            user-select: none;
+            transition: background-color 0.2s;
+        }
+
+        summary::-webkit-details-marker {
+            display: none;
+        }
+
+        summary:hover {
+            background-color: #19233c;
+        }
+
+        summary::after {
+            content: "+";
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: #ff0000;
+        }
+
+        details[open] summary::after {
+            content: "−";
+        }
+
+        .details-content {
+            padding: 0.85rem 1.25rem 1.1rem 1.25rem;
+            color: #cbd5e1;
+            font-size: 0.95rem;
+            line-height: 1.6;
+            border-top: 1px solid #1e293b;
+        }
+
+        .details-content ul {
+            margin: 0;
+            padding-left: 1.2rem;
+        }
+
+        .details-content li {
+            margin-bottom: 0.4rem;
+        }
+
+        .details-content li:last-child {
+            margin-bottom: 0;
+        }
+
+        /* =====================================================================
+           3D HRA A HUD
+           ===================================================================== */
+        #game-wrapper {
+            position: fixed;
+            inset: 0;
+            overflow: hidden;
+            background-color: #111;
+            user-select: none;
+        }
+
+        #game-wrapper.hidden {
+            display: none;
+        }
+
+        #canvas-container { width: 100vw; height: 100vh; }
+
+        /* HUD */
+        #hud {
+            position: absolute; bottom: 30px; right: 30px;
+            display: flex; align-items: flex-end; gap: 20px;
+            background: rgba(15, 15, 20, 0.85);
+            padding: 20px 30px; border-radius: 15px;
+            border: 2px solid #333; box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+            color: white;
+        }
+        .gauge-box { text-align: center; }
+        .label { font-size: 12px; text-transform: uppercase; color: #888; letter-spacing: 1px; margin-bottom: 5px; }
+        #speed-val { font-size: 48px; font-weight: bold; font-variant-numeric: tabular-nums; color: #fff; }
+        #gear-val {
+            font-size: 56px; font-weight: 900; color: #ff3b30; background: #222;
+            width: 70px; height: 70px; line-height: 66px; border-radius: 10px; border: 2px solid #444;
+        }
+        #rpm-container { width: 200px; }
+        #rpm-bar-bg { width: 100%; height: 20px; background: #222; border-radius: 10px; overflow: hidden; border: 1px solid #444; }
+        #rpm-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #34c759, #ffcc00, #ff3b30); }
+
+        /* Indikátor řazení nahoře uprostřed */
+        #shift-area {
+            position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
+            display: flex; flex-direction: column; align-items: center; gap: 8px;
+            pointer-events: none;
+        }
+        #shiftlights { display: flex; gap: 6px; background: rgba(15,15,20,0.8); padding: 8px 12px; border-radius: 22px; border: 2px solid #333; }
+        .led { width: 18px; height: 18px; border-radius: 50%; background: #2a2a2a; border: 1px solid #444; transition: background 0.04s, box-shadow 0.04s; }
+        .led.on-g { background: #34c759; box-shadow: 0 0 10px #34c759; }
+        .led.on-y { background: #ffcc00; box-shadow: 0 0 10px #ffcc00; }
+        .led.on-r { background: #ff3b30; box-shadow: 0 0 12px #ff3b30; }
+        #shift-arrow {
+            display: flex; flex-direction: column; align-items: center;
+            color: #ff3b30; font-weight: 900; text-shadow: 0 0 18px rgba(255,59,48,0.9);
+            animation: blink 0.28s steps(2, start) infinite;
+        }
+        #shift-arrow .arrow { font-size: 64px; line-height: 56px; }
+        #shift-arrow .txt { font-size: 18px; letter-spacing: 3px; }
+        #shift-arrow.hidden { display: none; }
+        @keyframes blink { to { opacity: 0.15; } }
+
+        /* Pravý sloupec: Časoměr + Online TOP 10 */
+        #right-hud-stack {
+            position: absolute; top: 20px; right: 20px;
+            display: flex; flex-direction: column; align-items: flex-end; gap: 10px;
+        }
+
+        #timer-box {
+            background: rgba(15, 15, 20, 0.85); color: white;
+            padding: 15px 22px; border-radius: 10px; border: 2px solid #333;
+            font-family: monospace; text-align: right; box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            width: 260px;
+        }
+        .time-row { font-size: 24px; font-weight: bold; color: #34c759; }
+        .time-label { font-size: 11px; color: #888; text-transform: uppercase; }
+        .best-time { font-size: 14px; color: #ffcc00; margin-top: 5px; }
+        .last-time { font-size: 13px; color: #ccc; margin-top: 2px; }
+        #car-name-box, #transmission-mode {
+            font-size: 12px; color: #00d2ff; margin-top: 8px; border-top: 1px solid #444;
+            padding-top: 5px; font-family: sans-serif; font-weight: bold;
+        }
+        #transmission-mode { margin-top: 4px; border-top: none; padding-top: 0; }
+
+        /* Online TOP 10 v HUDu */
+        #hud-leaderboard {
+            background: rgba(15, 15, 20, 0.85); color: white;
+            padding: 12px 16px; border-radius: 10px; border: 2px solid #333;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            width: 260px;
+            font-size: 12px;
+        }
+        .hud-lb-header {
+            display: flex; justify-content: space-between; align-items: center;
+            font-weight: bold; color: #ffcc00; letter-spacing: 0.5px;
+            cursor: pointer;
+        }
+        .hud-lb-table {
+            width: 100%; border-collapse: collapse; margin-top: 8px;
+        }
+        .hud-lb-table td {
+            padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+        .hud-lb-table tr:last-child td { border-bottom: none; }
+        .hud-lb-table.collapsed { display: none; }
+
+        /* Nápověda ovládání */
+        #controls-info {
+            position: absolute; top: 20px; left: 20px;
+            background: rgba(15, 15, 20, 0.75); color: #ddd;
+            padding: 15px 20px; border-radius: 10px; border-left: 4px solid #ff3b30;
+            font-size: 14px; line-height: 1.6;
+        }
+        #controls-info small { color: #999; }
+
+        .back-to-info-btn {
+            margin-top: 10px;
+            background: rgba(255, 59, 48, 0.2);
+            color: #ff6b6b;
+            border: 1px solid rgba(255, 59, 48, 0.5);
+            padding: 5px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .back-to-info-btn:hover {
+            background: rgba(255, 59, 48, 0.35);
+            color: #fff;
+        }
+
+        /* Minimapa */
+        #minimap-container {
+            position: absolute; bottom: 30px; left: 30px; width: 180px; height: 180px;
+            background: rgba(15, 15, 20, 0.85); border-radius: 15px; border: 2px solid #333;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.7); overflow: hidden;
+        }
+        #minimap-canvas { width: 100%; height: 100%; }
+
+        kbd {
+            background: #333; padding: 2px 6px; border-radius: 4px; border: 1px solid #555;
+            font-family: monospace; color: #fff;
+        }
+
+        /* MENU */
+        #menu {
+            position: absolute; inset: 0; background: rgba(5, 5, 10, 0.78);
+            display: flex; align-items: center; justify-content: center; z-index: 10;
+        }
+        #menu.hidden { display: none; }
+        .menu-panel {
+            width: min(720px, 94vw); max-height: 92vh; overflow-y: auto;
+            background: #14141b; border: 2px solid #333; border-radius: 16px;
+            padding: 24px 28px; color: #eee; box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+        }
+        .menu-panel h2 { margin: 0 0 4px; letter-spacing: 3px; color: #ff3b30; }
+        .section-title { margin: 18px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: #888; }
+        .menu-input {
+            width: 100%; padding: 10px 12px; background: #1c1c26; border: 2px solid #2c2c3a;
+            border-radius: 10px; color: #fff; font: inherit; outline: none;
+        }
+        .menu-input:focus { border-color: #00d2ff; }
+        .car-card {
+            display: flex; gap: 14px; align-items: center; padding: 12px 14px; margin-bottom: 8px;
+            background: #1c1c26; border: 2px solid #2c2c3a; border-radius: 12px; cursor: pointer;
+        }
+        .car-card:hover { border-color: #555; }
+        .car-card.active { border-color: #ff3b30; background: #241a1d; }
+        .car-swatch { width: 54px; height: 54px; border-radius: 10px; border: 2px solid rgba(255,255,255,0.25); flex: none; }
+        .car-info { flex: 1; }
+        .car-name { font-weight: bold; font-size: 16px; }
+        .car-desc { font-size: 12px; color: #aaa; margin: 2px 0 6px; }
+        .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 16px; }
+        .stat { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #bbb; }
+        .stat span { width: 78px; }
+        .bar { flex: 1; height: 6px; background: #333; border-radius: 3px; overflow: hidden; }
+        .bar div { height: 100%; background: linear-gradient(90deg, #34c759, #ffcc00); }
+        .toggle-row { display: flex; gap: 10px; }
+        .menu-panel button {
+            font: inherit; color: #eee; background: #22222e; border: 2px solid #333;
+            border-radius: 10px; padding: 9px 18px; cursor: pointer;
+        }
+        .menu-panel button:hover { border-color: #666; }
+        .menu-panel button.active { border-color: #00d2ff; color: #00d2ff; }
+        #btn-close { margin-top: 20px; width: 100%; background: #ff3b30; border-color: #ff3b30; color: #fff; font-weight: bold; }
+        #btn-back-maintenance { margin-top: 10px; width: 100%; background: #1e293b; border-color: #334155; color: #cbd5e1; }
+        #vol { width: 100%; }
+        .menu-hint { font-size: 12px; color: #777; margin-top: 6px; }
+    </style>
+</head>
+<body>
+
+    <!-- =====================================================================
+         1. ÚDRŽBOVÁ STRÁNKA METO RACING
+         ===================================================================== -->
+    <div id="maintenance-screen">
+        <div class="container">
+            <div class="meto-logo" title="METO Racing">
+                <div class="logo-top">
+                    <div class="sq"></div>
+                    <div class="sq"></div>
+                    <div class="sq"></div>
+                    <div class="sq"></div>
+                </div>
+                <div class="logo-bottom"></div>
+            </div>
+
+            <h1 class="brand-title"><span>METO</span> Racing</h1>
+            <div class="status-badge">Stránka je dočasně nedostupná kvůli velké aktualizaci</div>
+            
+            <p class="subtitle">
+                Právě nasazujeme masivní update fyziky, nových tratí a herních režimů. 
+                Brzy opět vyrážíme na trať! Zadej svou přezdívku a vyzkoušej aktuální verzi – tvé nejlepší kolo se uloží do globálního žebříčku:
+            </p>
+
+            <div class="player-setup">
+                <input type="text" id="home-player-name" maxlength="16" placeholder="Tvoje přezdívka (např. RacerCZ)">
+            </div>
+
+            <button class="play-btn" id="btn-launch-game">
+                <span>Vyzkoušet aktuální hratelnou verzi</span>
+                <span>▶</span>
+            </button>
+
+            <!-- ONLINE TOP 10 NA ÚVODNÍ STRÁNCE -->
+            <div class="changelog-header">Online žebříček – TOP 10 nejrychlejších kol</div>
+            <div class="home-leaderboard">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 40px;">#</th>
+                            <th>Jezdec</th>
+                            <th>Vůz</th>
+                            <th style="text-align: right;">Čas kola</th>
+                        </tr>
+                    </thead>
+                    <tbody id="home-lb-body">
+                        <tr><td colspan="4" style="text-align:center; color:#64748b;">Načítám online časy...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="changelog-header">Přehled novinek v připravované verzi</div>
+
+            <div class="accordion">
+                <details>
+                    <summary>1. Motor, křivka točivého momentu a reálné převody</summary>
+                    <div class="details-content">
+                        <ul>
+                            <li>Zrušení dosavadního lineárního zrychlení „z ničeho“.</li>
+                            <li>Simulace otáček motoru (RPM) a křivky točivého momentu – největší tah v optimálním pásmu, dušení v nízkých otáčkách a ztráta síly u omezovače.</li>
+                            <li>Reálná převodovka: každý stupeň má vlastní rozsah a poměr (u manuálního řazení špatně zvolený stupeň zpomalí akceleraci).</li>
+                            <li>Vyvážení maximálních rychlostí jednotlivých vozů.</li>
+                        </ul>
+                    </div>
+                </details>
+
+                <details>
+                    <summary>2. Měřítko a nové tratě</summary>
+                    <div class="details-content">
+                        <ul>
+                            <li>Délka tratí nastavena na reálných 2,5 až 5,5 km (čas na jedno kolo cca 1 až 3 minuty).</li>
+                            <li>Nová trať: <strong>NASCAR ovál</strong> (široký, rychlý okruh s klopenými zatáčkami).</li>
+                            <li>Přidání <strong>3 delších GT tratí</strong>.</li>
+                        </ul>
+                    </div>
+                </details>
+
+                <details>
+                    <summary>3. Fyzika (Simcade model) a Pit Stopy</summary>
+                    <div class="details-content">
+                        <ul>
+                            <li><strong>Přenos váhy (Weight Transfer):</strong> při brzdění se váha přesouvá dopředu (lepší grip vpředu, neklidný zadek), při akceleraci dozadu.</li>
+                            <li><strong>Opotřebení pneumatik:</strong> při smycích a tvrdém brzdění se gumy sjíždějí a ztrácejí přilnavost.</li>
+                            <li>Přidána boxová ulička a funkční <strong>Pit Stopy</strong>.</li>
+                        </ul>
+                    </div>
+                </details>
+
+                <details>
+                    <summary>4. Ideální stopa (Racing Line)</summary>
+                    <div class="details-content">
+                        <ul>
+                            <li>Dynamický výpočet z geometrie trati a schopností aktuálního auta.</li>
+                            <li>Barevná vizualizace: zelená (plný plyn), žlutá (ubrat/připravit se), červená (brzdit).</li>
+                            <li>Možnost kdykoliv zapnout nebo vypnout v nastavení.</li>
+                        </ul>
+                    </div>
+                </details>
+
+                <details>
+                    <summary>5. Duch nejlepšího kola (Ghost Car) a záznam jízdy</summary>
+                    <div class="details-content">
+                        <ul>
+                            <li>Ukládání pozice a rotace auta během kola do paměti (localStorage).</li>
+                            <li>Vykreslení poloprůhledného auta (ducha) tvého nejlepšího času v dalším kole.</li>
+                            <li>Možnost zapnout/vypnout v nastavení.</li>
+                        </ul>
+                    </div>
+                </details>
+
+                <details>
+                    <summary>6. Uživatelské účty, profil a žebříčky</summary>
+                    <div class="details-content">
+                        <ul>
+                            <li>Lokální uživatelské účty v prohlížeči – přezdívka, avatar a ukládání postupu.</li>
+                            <li>Automatické ukládání nejlepších časů, ghost záznamů, odemčených aut a nastavení z garáže k profilu.</li>
+                            <li>Žebříčky (leaderboards) nejlepších časů na tratích podle hráčů a vozů.</li>
+                        </ul>
+                    </div>
+                </details>
+
+                <details>
+                    <summary>7. AI soupeři a závody</summary>
+                    <div class="details-content">
+                        <ul>
+                            <li>Počítačoví soupeři využívající vypočítanou ideální stopu.</li>
+                            <li>Nastavitelná obtížnost podle chybovosti a odchylky od stopy a brzdných bodů.</li>
+                            <li>Plnohodnotný režim závodů s uzpůsobenými tratěmi.</li>
+                        </ul>
+                    </div>
+                </details>
+
+                <details>
+                    <summary>8. Pravidla trati, prostředí a ovládání</summary>
+                    <div class="details-content">
+                        <ul>
+                            <li><strong>Sektory a penalizace:</strong> rozdělení tratí na sektory, měření mezičasů a delta čas.</li>
+                            <li><strong>Počasí a denní doba:</strong> déšť (nižší přilnavost, delší brzdná dráha) a noc (funkční světlomety osvětlující trať).</li>
+                            <li>Podpora dotykového ovládání pro mobilní telefony.</li>
+                        </ul>
+                    </div>
+                </details>
+
+                <details>
+                    <summary>9. Garáž, tuning, design aut a scenérie trati</summary>
+                    <div class="details-content">
+                        <ul>
+                            <li><strong>Garáž a tuning:</strong> odemykání nových aut za zajeté časy, úprava převodů, pneumatik, přítlaku a brzd.</li>
+                            <li><strong>Design aut:</strong> úprava vzhledu vozidel (barvy laku, polepy, doplňky).</li>
+                            <li><strong>Scenérie tratí:</strong> tribuny s diváky, boxová ulička, svodidla, stromy a budovy podél trati.</li>
+                        </ul>
+                    </div>
+                </details>
+
+                <details>
+                    <summary>10. Nové předzávodní menu a optimalizace výkonu</summary>
+                    <div class="details-content">
+                        <ul>
+                            <li>Nová úvodní obrazovka před spuštěním závodu nebo volného ježdění.</li>
+                            <li>Možnost snížit grafickou kvalitu a nastavit limit FPS přímo v menu pro plynulý chod i na slabších zařízeních.</li>
+                        </ul>
+                    </div>
+                </details>
+            </div>
+        </div>
+    </div>
+
+    <!-- =====================================================================
+         2. 3D HRA (METO RACING)
+         ===================================================================== -->
+    <div id="game-wrapper" class="hidden">
+        <div id="controls-info">
+            <strong>OVLÁDÁNÍ GT VOZU:</strong><br>
+            <kbd>W</kbd> Plyn (při stání přepne na 1) | <kbd>S</kbd> Brzda / Zpátečka<br>
+            <kbd>A</kbd> <kbd>D</kbd> Řízení (závislé na rychlosti)<br>
+            <kbd>MEZERNÍK</kbd> Řadit nahoru | <kbd>SHIFT</kbd> Řadit dolů (v manuálu)<br>
+            <kbd>T</kbd> Manuál / Automat | <kbd>C</kbd> Pohled | <kbd>R</kbd> Zpět na start<br>
+            <kbd>M</kbd> Menu (výběr vozu, přezdívka, nastavení)<br>
+            <small>Zvuk se zapne stiskem libovolné klávesy.</small><br>
+            <button class="back-to-info-btn" id="btn-hud-back">← Zpět na info o aktualizaci</button>
+        </div>
+
+        <div id="shift-area">
+            <div id="shiftlights"></div>
+            <div id="shift-arrow" class="hidden">
+                <div class="arrow">▲</div>
+                <div class="txt">PŘEŘAĎ</div>
+            </div>
+        </div>
+
+        <!-- Pravý HUD: Časoměr + Online žebříček TOP 10 -->
+        <div id="right-hud-stack">
+            <div id="timer-box">
+                <div class="time-label">Aktuální čas</div>
+                <div class="time-row" id="current-time">00:00.00</div>
+                <div class="best-time" id="best-time">Nejlepší kolo: --:--.--</div>
+                <div class="last-time" id="last-time">Poslední kolo: --:--.--</div>
+                <div id="car-name-box">VŮZ: –</div>
+                <div id="transmission-mode">REŽIM: AUTOMAT [T]</div>
+            </div>
+
+            <div id="hud-leaderboard">
+                <div class="hud-lb-header" id="toggle-hud-lb">
+                    <span>🏆 ONLINE TOP 10</span>
+                    <span id="hud-lb-arrow">▼</span>
+                </div>
+                <table class="hud-lb-table" id="hud-lb-table">
+                    <tbody id="hud-lb-body">
+                        <tr><td style="color:#888;">Načítám...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="minimap-container">
+            <canvas id="minimap-canvas" width="180" height="180"></canvas>
+        </div>
+
+        <div id="hud">
+            <div id="rpm-container">
+                <div class="label">Otáčky (RPM)</div>
+                <div id="rpm-bar-bg"><div id="rpm-bar"></div></div>
+            </div>
+            <div class="gauge-box">
+                <div class="label">Rychlost (km/h)</div>
+                <div id="speed-val">0</div>
+            </div>
+            <div class="gauge-box">
+                <div class="label">Stupeň</div>
+                <div id="gear-val">1</div>
+            </div>
+        </div>
+
+        <div id="menu" class="hidden">
+            <div class="menu-panel">
+                <h2>MENU</h2>
+                <div class="menu-hint">Hra je pozastavená. Vůz vyberete kliknutím nebo klávesami 1 / 2 / 3. Změna vozu vrací auto na start.</div>
+
+                <div class="section-title">Tvoje přezdívka (pro online žebříček)</div>
+                <input type="text" id="menu-player-name" class="menu-input" maxlength="16" placeholder="Zadej přezdívku...">
+
+                <div class="section-title">Výběr vozu</div>
+                <div id="car-cards"></div>
+
+                <div class="section-title">Převodovka</div>
+                <div class="toggle-row">
+                    <button id="btn-manual">Manuál</button>
+                    <button id="btn-auto">Automat</button>
+                </div>
+
+                <div class="section-title">Hlasitost zvuku</div>
+                <input type="range" id="vol" min="0" max="100" value="60">
+
+                <button id="btn-close">Pokračovat v jízdě [M]</button>
+                <button id="btn-back-maintenance">Zpět na přehled aktualizace METO Racing</button>
+            </div>
+        </div>
+
+        <div id="canvas-container"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        // =====================================================================
+        // SPRÁVA PŘEZDÍVKY A ONLINE ŽEBŘÍČKU TOP 10
+        // =====================================================================
+        let playerName = localStorage.getItem('meto_player_name') || '';
+        const homeNameInput = document.getElementById('home-player-name');
+        const menuNameInput = document.getElementById('menu-player-name');
+
+        homeNameInput.value = playerName;
+        menuNameInput.value = playerName;
+
+        function updatePlayerName(val) {
+            playerName = val.trim().substring(0, 16);
+            localStorage.setItem('meto_player_name', playerName);
+            homeNameInput.value = playerName;
+            menuNameInput.value = playerName;
+        }
+
+        homeNameInput.addEventListener('input', (e) => updatePlayerName(e.target.value));
+        menuNameInput.addEventListener('input', (e) => updatePlayerName(e.target.value));
+
+        // Zabrání spuštění klávesových zkratek hry při psaní přezdívky v menu
+        menuNameInput.addEventListener('keydown', (e) => e.stopPropagation());
+
+        // Sbalení / rozbalení tabulky v HUDu
+        document.getElementById('toggle-hud-lb').addEventListener('click', () => {
+            const tbl = document.getElementById('hud-lb-table');
+            const arr = document.getElementById('hud-lb-arrow');
+            tbl.classList.toggle('collapsed');
+            arr.textContent = tbl.classList.contains('collapsed') ? '▶' : '▼';
+        });
+
+        function escapeHTML(str) {
+            return String(str).replace(/[&<>'"]/g, tag => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+            }[tag]));
+        }
+
+        function renderLeaderboards(entries) {
+            const homeBody = document.getElementById('home-lb-body');
+            const hudBody = document.getElementById('hud-lb-body');
+
+            if (entries === null) {
+                const errMsg = 'Nelze načíst žebříček (zkontroluj oprávnění Firestore).';
+                homeBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:#f87171;">${errMsg}</td></tr>`;
+                hudBody.innerHTML = `<tr><td style="color:#f87171;">Chyba databáze</td></tr>`;
+                return;
+            }
+
+            if (entries.length === 0) {
+                homeBody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#64748b;">Zatím žádné zajeté časy. Buď první!</td></tr>';
+                hudBody.innerHTML = '<tr><td style="color:#888;">Zatím žádné časy</td></tr>';
+                return;
+            }
+
+            homeBody.innerHTML = entries.map((row, idx) => {
+                const rankClass = idx === 0 ? 'rank-1' : (idx === 1 ? 'rank-2' : (idx === 2 ? 'rank-3' : ''));
+                return `
+                    <tr>
+                        <td class="${rankClass}">${idx + 1}.</td>
+                        <td><strong>${escapeHTML(row.name || 'Anonym')}</strong></td>
+                        <td class="lb-car">${escapeHTML(row.car || 'GT')}</td>
+                        <td class="lb-time">${formatTime(row.time)}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            hudBody.innerHTML = entries.map((row, idx) => {
+                const rankColor = idx === 0 ? '#ffd700' : (idx === 1 ? '#e2e8f0' : (idx === 2 ? '#d97706' : '#888'));
+                return `
+                    <tr>
+                        <td style="color:${rankColor}; font-weight:bold; width:22px;">${idx + 1}.</td>
+                        <td style="max-width:95px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHTML(row.name || 'Anonym')}</td>
+                        <td style="color:#888; font-size:10px;">${escapeHTML((row.car || '').split(' ')[0])}</td>
+                        <td style="font-family:monospace; color:#34c759; text-align:right; font-weight:bold;">${formatTime(row.time)}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        window.initLeaderboardListener = () => {
+            if (window.metoDB) {
+                window.metoDB.listenTop10(renderLeaderboards);
+            }
+        };
+        if (window.metoDB) window.initLeaderboardListener();
+
+        // =====================================================================
+        // PŘEPÍNÁNÍ MEZI ÚDRŽBOVOU OBRAZOVKOU A HROU
+        // =====================================================================
+        let gameActive = false;
+        const maintenanceEl = document.getElementById('maintenance-screen');
+        const gameWrapperEl = document.getElementById('game-wrapper');
+
+        function openGame() {
+            if (!playerName) {
+                const defaultName = 'Jezdec_' + Math.floor(100 + Math.random() * 900);
+                updatePlayerName(defaultName);
+            }
+            maintenanceEl.classList.add('hidden');
+            gameWrapperEl.classList.remove('hidden');
+            gameActive = true;
+            document.title = 'METO Racing – 3D GT Závody';
+            initAudio();
+            onResize();
+            lastFrame = performance.now();
+        }
+
+        function closeGame() {
+            gameActive = false;
+            keys.w = keys.s = keys.a = keys.d = false;
+            gameWrapperEl.classList.add('hidden');
+            maintenanceEl.classList.remove('hidden');
+            document.title = 'METO Racing – Probíhá aktualizace';
+            if (audio.ctx && audio.engineGain) {
+                const t = audio.ctx.currentTime;
+                audio.engineGain.gain.setTargetAtTime(0, t, 0.05);
+                audio.squeal.g.gain.setTargetAtTime(0, t, 0.05);
+                audio.rough.g.gain.setTargetAtTime(0, t, 0.05);
+            }
+        }
+
+        document.getElementById('btn-launch-game').addEventListener('click', openGame);
+        document.getElementById('btn-hud-back').addEventListener('click', closeGame);
+        document.getElementById('btn-back-maintenance').addEventListener('click', () => {
+            if (menuOpen) toggleMenu();
+            closeGame();
+        });
+
+        // =====================================================================
+        // 1. ZÁKLADNÍ NASTAVENÍ SCÉNY
+        // =====================================================================
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87ceeb);
+        scene.fog = new THREE.Fog(0x87ceeb, 160, 560);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.3, 1200);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.85);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        const SH = 70;
+        dirLight.shadow.camera.left = -SH;
+        dirLight.shadow.camera.right = SH;
+        dirLight.shadow.camera.top = SH;
+        dirLight.shadow.camera.bottom = -SH;
+        dirLight.shadow.camera.far = 500;
+        scene.add(dirLight);
+        scene.add(dirLight.target);
+
+        // =====================================================================
+        // 2. TEXTURY
+        // =====================================================================
+        const MAX_ANISO = renderer.capabilities.getMaxAnisotropy();
+
+        function finishTexture(canvas, repeatX, repeatY, nearest) {
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(repeatX, repeatY);
+            tex.anisotropy = MAX_ANISO;
+            if (nearest) { tex.magFilter = THREE.NearestFilter; }
+            return tex;
+        }
+
+        function makeAsphaltTexture() {
+            const c = document.createElement('canvas');
+            c.width = c.height = 256;
+            const g = c.getContext('2d');
+            g.fillStyle = '#0c0c0e';
+            g.fillRect(0, 0, 256, 256);
+            for (let i = 0; i < 5000; i++) {
+                const v = Math.floor(Math.random() * 45);
+                g.fillStyle = `rgba(${v + 20},${v + 20},${v + 22},${Math.random() * 0.6})`;
+                g.fillRect(Math.random() * 256, Math.random() * 256, 1 + Math.random() * 1.5, 1 + Math.random() * 1.5);
+            }
+            g.strokeStyle = 'rgba(255,255,255,0.045)';
+            g.lineWidth = 1;
+            for (let p = 0; p <= 256; p += 32) {
+                g.beginPath(); g.moveTo(p + 0.5, 0); g.lineTo(p + 0.5, 256); g.stroke();
+                g.beginPath(); g.moveTo(0, p + 0.5); g.lineTo(256, p + 0.5); g.stroke();
+            }
+            return finishTexture(c, 1, 1, false);
+        }
+
+        function makeGrassTexture() {
+            const c = document.createElement('canvas');
+            c.width = c.height = 512;
+            const g = c.getContext('2d');
+            g.fillStyle = '#3cb44f';
+            g.fillRect(0, 0, 512, 512);
+            for (let i = 0; i < 900; i++) {
+                const light = Math.random() > 0.5;
+                g.fillStyle = light
+                    ? `rgba(120,230,110,${Math.random() * 0.12})`
+                    : `rgba(20,110,40,${Math.random() * 0.14})`;
+                g.beginPath();
+                g.arc(Math.random() * 512, Math.random() * 512, 6 + Math.random() * 26, 0, Math.PI * 2);
+                g.fill();
+            }
+            for (let i = 0; i < 6000; i++) {
+                g.fillStyle = `rgba(${40 + Math.random() * 40},${150 + Math.random() * 70},${50 + Math.random() * 40},0.35)`;
+                g.fillRect(Math.random() * 512, Math.random() * 512, 1, 2 + Math.random() * 3);
+            }
+            return finishTexture(c, 70, 70, false);
+        }
+
+        function makeGravelTexture() {
+            const c = document.createElement('canvas');
+            c.width = c.height = 256;
+            const g = c.getContext('2d');
+            g.fillStyle = '#9b8b78';
+            g.fillRect(0, 0, 256, 256);
+            for (let i = 0; i < 3500; i++) {
+                const v = 90 + Math.floor(Math.random() * 90);
+                g.fillStyle = `rgba(${v + 10},${v},${v - 15},${0.4 + Math.random() * 0.5})`;
+                g.beginPath();
+                g.arc(Math.random() * 256, Math.random() * 256, 0.8 + Math.random() * 2.2, 0, Math.PI * 2);
+                g.fill();
+            }
+            return finishTexture(c, 1, 1, false);
+        }
+
+        function makeCheckerTexture() {
+            const c = document.createElement('canvas');
+            c.width = 128; c.height = 32;
+            const g = c.getContext('2d');
+            for (let x = 0; x < 16; x++) {
+                for (let y = 0; y < 4; y++) {
+                    g.fillStyle = (x + y) % 2 === 0 ? '#ffffff' : '#111111';
+                    g.fillRect(x * 8, y * 8, 8, 8);
+                }
+            }
+            return finishTexture(c, 1, 1, true);
+        }
+
+        // =====================================================================
+        // 3. TRAŤ: GEOMETRIE, POVRCHY, OBRUBNÍKY, BARIÉRY
+        // =====================================================================
+        const ground = new THREE.Mesh(
+            new THREE.PlaneGeometry(1400, 1400),
+            new THREE.MeshStandardMaterial({ map: makeGrassTexture(), roughness: 0.9 })
+        );
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        const trackPoints = [
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(0, 0, -120),
+            new THREE.Vector3(60, 0, -180),
+            new THREE.Vector3(160, 0, -160),
+            new THREE.Vector3(200, 0, -60),
+            new THREE.Vector3(140, 0, 20),
+            new THREE.Vector3(180, 0, 110),
+            new THREE.Vector3(100, 0, 160),
+            new THREE.Vector3(10, 0, 120),
+            new THREE.Vector3(0, 0, 60)
+        ];
+        const trackCurve = new THREE.CatmullRomCurve3(trackPoints, true);
+        const TRACK_LENGTH = trackCurve.getLength();
+
+        const halfW = 14;
+        const trackWidth = halfW * 2;
+        const gravelWidth = 10;
+        const kerbW = 2.2;
+        const WALL_IN = halfW + gravelWidth;
+
+        const N = 700;
+        const samples = [];
+        for (let i = 0; i <= N; i++) {
+            const t = (i % N) / N;
+            const p = trackCurve.getPointAt(t);
+            const tan = trackCurve.getTangentAt(t).normalize();
+            samples.push({ x: p.x, z: p.z, tx: tan.x, tz: tan.z, nx: -tan.z, nz: tan.x, s: (i / N) * TRACK_LENGTH });
+        }
+        const cx = new Float32Array(N);
+        const cz = new Float32Array(N);
+        for (let i = 0; i < N; i++) { cx[i] = samples[i].x; cz[i] = samples[i].z; }
+
+        const kerbFlag = new Uint8Array(N + 1);
+        const K_WIN = 7;
+        for (let i = 0; i < N; i++) {
+            const a = samples[(i - K_WIN + N) % N];
+            const b = samples[(i + K_WIN) % N];
+            const cross = a.tx * b.tz - a.tz * b.tx;
+            const dot = a.tx * b.tx + a.tz * b.tz;
+            const ang = Math.abs(Math.atan2(cross, dot));
+            const k = ang / (2 * K_WIN * TRACK_LENGTH / N);
+            kerbFlag[i] = k > 0.008 ? 1 : 0;
+        }
+        kerbFlag[N] = kerbFlag[0];
+
+        function P(s, off, y) {
+            return [s.x + s.nx * off, y, s.z + s.nz * off];
+        }
+
+        function buildStrip(pairFn, opts) {
+            const o = opts || {};
+            const uMax = o.uMax || 1;
+            const vRepeat = o.vRepeat || 8;
+            const pos = [], uv = [], col = [];
+            for (let i = 0; i < N; i++) {
+                if (o.filter && !o.filter(i)) continue;
+                const a = samples[i], b = samples[i + 1];
+                const pa = pairFn(a), pb = pairFn(b);
+                pos.push(...pa[0], ...pa[1], ...pb[0], ...pa[1], ...pb[1], ...pb[0]);
+                const v0 = a.s / vRepeat, v1 = b.s / vRepeat;
+                uv.push(0, v0, uMax, v0, 0, v1, uMax, v0, uMax, v1, 0, v1);
+                if (o.colorFn) {
+                    const c = o.colorFn(i);
+                    for (let k = 0; k < 6; k++) col.push(c[0], c[1], c[2]);
+                }
+            }
+            const g = new THREE.BufferGeometry();
+            g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+            g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+            if (o.colorFn) g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+            g.computeVertexNormals();
+            return g;
+        }
+
+        function addMesh(geo, mat, receive) {
+            const m = new THREE.Mesh(geo, mat);
+            m.receiveShadow = receive !== false;
+            scene.add(m);
+            return m;
+        }
+
+        function poly(f, u) {
+            return { polygonOffset: true, polygonOffsetFactor: f, polygonOffsetUnits: u };
+        }
+
+        // Štěrk
+        const gravelMat = new THREE.MeshStandardMaterial({ map: makeGravelTexture(), roughness: 1.0, side: THREE.DoubleSide, ...poly(-1, -1) });
+        [1, -1].forEach(sg => {
+            addMesh(buildStrip(s => [P(s, sg * halfW, 0.02), P(s, sg * (halfW + gravelWidth), 0.02)], { uMax: gravelWidth / 8 }), gravelMat);
+        });
+
+        // Asfalt
+        const roadMat = new THREE.MeshStandardMaterial({ map: makeAsphaltTexture(), color: 0xffffff, roughness: 0.7, side: THREE.DoubleSide, ...poly(-2, -2) });
+        addMesh(buildStrip(s => [P(s, halfW, 0.04), P(s, -halfW, 0.04)], { uMax: trackWidth / 8 }), roadMat);
+
+        // Bílé čáry
+        const lineMat = new THREE.MeshBasicMaterial({ color: 0xf2f2f2, side: THREE.DoubleSide, ...poly(-3, -3) });
+        [1, -1].forEach(sg => {
+            addMesh(buildStrip(s => [P(s, sg * (halfW - 0.6), 0.055), P(s, sg * (halfW - 0.2), 0.055)]), lineMat, false);
+        });
+        addMesh(buildStrip(s => [P(s, -0.2, 0.055), P(s, 0.2, 0.055)], { filter: i => Math.floor(i / 3) % 2 === 0 }), lineMat, false);
+
+        // Obrubníky
+        const kerbMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, side: THREE.DoubleSide, ...poly(-4, -4) });
+        const kerbColor = i => (Math.floor(i / 2) % 2 === 0 ? [0.92, 0.1, 0.1] : [0.96, 0.96, 0.96]);
+        [1, -1].forEach(sg => {
+            addMesh(buildStrip(
+                s => [P(s, sg * (halfW - kerbW), 0.07), P(s, sg * halfW, 0.07)],
+                { filter: i => kerbFlag[i] && kerbFlag[i + 1], colorFn: kerbColor }
+            ), kerbMat);
+        });
+
+        // Bariéry
+        const wallMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, side: THREE.DoubleSide });
+        const wallColor = i => (Math.floor(i / 4) % 2 === 0 ? [0.85, 0.12, 0.12] : [0.95, 0.95, 0.95]);
+        const WALL_H = 1.3, WALL_T = 0.9;
+        [1, -1].forEach(sg => {
+            const o = { colorFn: wallColor };
+            addMesh(buildStrip(s => [P(s, sg * WALL_IN, 0), P(s, sg * WALL_IN, WALL_H)], o), wallMat, false);
+            addMesh(buildStrip(s => [P(s, sg * WALL_IN, WALL_H), P(s, sg * (WALL_IN + WALL_T), WALL_H)], o), wallMat, false);
+            addMesh(buildStrip(s => [P(s, sg * (WALL_IN + WALL_T), WALL_H), P(s, sg * (WALL_IN + WALL_T), 0)], o), wallMat, false);
+        });
+
+        // Startovní čára
+        const startLine = new THREE.Mesh(
+            new THREE.PlaneGeometry(trackWidth, 3),
+            new THREE.MeshBasicMaterial({ map: makeCheckerTexture(), ...poly(-5, -5) })
+        );
+        startLine.rotation.x = -Math.PI / 2;
+        startLine.position.set(0, 0.06, 0);
+        scene.add(startLine);
+
+        function nearestSample(x, z) {
+            let best = 1e12, bi = 0;
+            for (let i = 0; i < N; i++) {
+                const dx = x - cx[i], dz = z - cz[i];
+                const d = dx * dx + dz * dz;
+                if (d < best) { best = d; bi = i; }
+            }
+            return { i: bi, d: Math.sqrt(best) };
+        }
+
+        function surfaceAt(x, z) {
+            const q = nearestSample(x, z);
+            let type = 'asphalt';
+            if (q.d > halfW) type = 'gravel';
+            else if (q.d > halfW - kerbW && kerbFlag[q.i]) type = 'kerb';
+            return { type, d: q.d, i: q.i };
+        }
+
+        // =====================================================================
+        // 4. DEFINICE AUT A 3D MODELY
+        // =====================================================================
+        const CARS = [
+            {
+                id: 'apex', name: 'Apex GT',
+                desc: 'Vyvážené GT s V8. Stabilní, předvídatelné, dobré na první kola.',
+                color: 0xe63946, stripe: 0xffffff,
+                body: { len: 4.6, wid: 2.2, hgt: 0.65 }, cabin: { len: 2.2, wid: 1.7, z: -0.2 }, wing: 'high', tire: 0.35,
+                speedMul: 1.0, accelMul: 1.0, grip: 0.20, steer: 1.0, brake: 0.035,
+                cyl: 8, idleRpm: 900, maxRpm: 7600, wave: 'sawtooth',
+                stats: { speed: 3, accel: 3, grip: 3, handling: 3 }
+            },
+            {
+                id: 'viper', name: 'Viper RS',
+                desc: 'Divoká V10. Nejvyšší rychlost, ale nervózní v zatáčkách a při brzdění.',
+                color: 0xf4c20d, stripe: 0x111111,
+                body: { len: 4.9, wid: 2.3, hgt: 0.6 }, cabin: { len: 2.0, wid: 1.7, z: 0.1 }, wing: 'big', tire: 0.44,
+                speedMul: 1.08, accelMul: 1.08, grip: 0.13, steer: 0.9, brake: 0.03,
+                cyl: 10, idleRpm: 1000, maxRpm: 8400, wave: 'sawtooth',
+                stats: { speed: 5, accel: 4, grip: 2, handling: 2 }
+            },
+            {
+                id: 'zephyr', name: 'Zephyr Sprint',
+                desc: 'Lehký přeplňovaný čtyřválec. Nižší rychlost, ale skvělé zrychlení a přilnavost.',
+                color: 0x2a9dff, stripe: 0xffffff,
+                body: { len: 4.0, wid: 2.0, hgt: 0.7 }, cabin: { len: 2.3, wid: 1.65, z: 0.2 }, wing: 'lip', tire: 0.32,
+                speedMul: 0.9, accelMul: 1.25, grip: 0.28, steer: 1.2, brake: 0.042,
+                cyl: 4, idleRpm: 850, maxRpm: 8200, wave: 'square',
+                stats: { speed: 2, accel: 5, grip: 5, handling: 5 }
+            }
+        ];
+
+        let currentCarIndex = 0;
+        let currentCar = CARS[0];
+        let carGroup = null;
+        let wheels = [];
+        let tailLightMat = null;
+
+        function buildCarModel(def) {
+            const g = new THREE.Group();
+            const bodyMat = new THREE.MeshStandardMaterial({ color: def.color, metalness: 0.6, roughness: 0.2 });
+            const stripeMat = new THREE.MeshStandardMaterial({ color: def.stripe, roughness: 0.4 });
+            const cabinMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.9, roughness: 0.1 });
+            const carbonMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5 });
+            const wheelMat = new THREE.MeshStandardMaterial({ color: 0x181818, roughness: 0.8 });
+            const rimMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.8, roughness: 0.2 });
+            const { len, wid, hgt } = def.body;
+
+            const chassis = new THREE.Mesh(new THREE.BoxGeometry(wid, hgt, len), bodyMat);
+            chassis.position.y = 0.6;
+            chassis.castShadow = true;
+            g.add(chassis);
+
+            const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.02, len * 0.98), stripeMat);
+            stripe.position.y = 0.6 + hgt / 2 + 0.01;
+            g.add(stripe);
+
+            const splitter = new THREE.Mesh(new THREE.BoxGeometry(wid + 0.1, 0.15, 0.6), carbonMat);
+            splitter.position.set(0, 0.35, -(len / 2 - 0.1));
+            g.add(splitter);
+
+            const cabin = new THREE.Mesh(new THREE.BoxGeometry(def.cabin.wid, 0.55, def.cabin.len), cabinMat);
+            cabin.position.set(0, 0.6 + hgt / 2 + 0.225, def.cabin.z);
+            cabin.castShadow = true;
+            g.add(cabin);
+
+            if (def.wing === 'high' || def.wing === 'big') {
+                const big = def.wing === 'big';
+                const bw = big ? wid + 0.25 : wid;
+                const by = big ? 1.62 : 1.45;
+                const bz = len / 2 - 0.2;
+                const blade = new THREE.Mesh(new THREE.BoxGeometry(bw, 0.08, big ? 0.6 : 0.45), carbonMat);
+                blade.position.set(0, by, bz);
+                g.add(blade);
+                const strutH = by - (0.6 + hgt / 2);
+                [-1, 1].forEach(sg => {
+                    const st = new THREE.Mesh(new THREE.BoxGeometry(0.08, strutH, 0.2), carbonMat);
+                    st.position.set(sg * (wid / 2 - 0.4), 0.6 + hgt / 2 + strutH / 2, bz);
+                    g.add(st);
+                });
+            } else {
+                const lip = new THREE.Mesh(new THREE.BoxGeometry(wid - 0.1, 0.07, 0.3), carbonMat);
+                lip.position.set(0, 0.6 + hgt / 2 + 0.08, len / 2 - 0.15);
+                g.add(lip);
+            }
+
+            const headMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const tailMat = new THREE.MeshBasicMaterial({ color: 0x660000 });
+            [-1, 1].forEach(sg => {
+                const hl = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.15, 0.1), headMat);
+                hl.position.set(sg * (wid / 2 - 0.35), 0.7, -(len / 2 + 0.01));
+                g.add(hl);
+                const tl = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.15, 0.1), tailMat);
+                tl.position.set(sg * (wid / 2 - 0.4), 0.75, len / 2 + 0.01);
+                g.add(tl);
+            });
+
+            const wList = [];
+            const wx = wid / 2 + 0.05;
+            const wz = len / 2 - 0.9;
+            [[-wx, -wz], [wx, -wz], [-wx, wz], [wx, wz]].forEach(([x, z]) => {
+                const wg = new THREE.Group();
+                const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, def.tire, 20), wheelMat);
+                tire.rotation.z = Math.PI / 2;
+                const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, def.tire + 0.01, 12), rimMat);
+                rim.rotation.z = Math.PI / 2;
+                wg.add(tire, rim);
+                wg.position.set(x, 0.4, z);
+                g.add(wg);
+                wList.push(wg);
+            });
+
+            return { group: g, wheels: wList, tailMat };
+        }
+
+        function setCar(i) {
+            currentCarIndex = i;
+            currentCar = CARS[i];
+            if (carGroup) scene.remove(carGroup);
+            const m = buildCarModel(currentCar);
+            carGroup = m.group;
+            wheels = m.wheels;
+            tailLightMat = m.tailMat;
+            scene.add(carGroup);
+            applyCarAudio();
+        }
+
+        // =====================================================================
+        // 5. STAV HRY, PŘEVODOVKA, FYZIKA
+        // =====================================================================
+        const START_Z = 14;
+        const state = {
+            x: 0, z: START_Z, angle: 0, velAngle: 0, speed: 0,
+            gear: 1, steeringAngle: 0, isManual: false, cockpitView: false,
+            throttle: 0, rpm: 0.12, shake: 0, vib: 0, surface: 'asphalt', slip: 0
+        };
+        const prev = { x: 0, z: START_Z, angle: 0 };
+
+        const BASE_GEARS = {
+            '-1': { maxSpeed: -0.6, accel: 0.008 },
+            '0': { maxSpeed: 0, accel: 0 },
+            '1': { maxSpeed: 0.75, accel: 0.018 },
+            '2': { maxSpeed: 1.35, accel: 0.014 },
+            '3': { maxSpeed: 1.95, accel: 0.011 },
+            '4': { maxSpeed: 2.55, accel: 0.009 },
+            '5': { maxSpeed: 3.20, accel: 0.007 }
+        };
+        function G(g) {
+            const b = BASE_GEARS[g];
+            if (g <= 0) return b;
+            return { maxSpeed: b.maxSpeed * currentCar.speedMul, accel: b.accel * currentCar.accelMul };
+        }
+
+        let startTime = null;
+        let lastLapTime = null;
+        const bestLapTimes = {};
+
+        const keys = { w: false, s: false, a: false, d: false };
+        const keyMap = { w: 'w', arrowup: 'w', s: 's', arrowdown: 's', a: 'a', arrowleft: 'a', d: 'd', arrowright: 'd' };
+        let menuOpen = false;
+        let menuOpenedAt = 0;
+
+        const speedEl = document.getElementById('speed-val');
+        const gearEl = document.getElementById('gear-val');
+        const rpmBarEl = document.getElementById('rpm-bar');
+        const shiftArrowEl = document.getElementById('shift-arrow');
+        const currentTimeEl = document.getElementById('current-time');
+        const bestTimeEl = document.getElementById('best-time');
+        const lastTimeEl = document.getElementById('last-time');
+        const carNameEl = document.getElementById('car-name-box');
+        const transEl = document.getElementById('transmission-mode');
+        const menuEl = document.getElementById('menu');
+
+        const LED_COUNT = 10;
+        const shiftLightsEl = document.getElementById('shiftlights');
+        const leds = [];
+        for (let i = 0; i < LED_COUNT; i++) {
+            const d = document.createElement('div');
+            d.className = 'led';
+            shiftLightsEl.appendChild(d);
+            leds.push(d);
+        }
+
+        function formatTime(ms) {
+            const totalSec = Math.floor(ms / 1000);
+            const minutes = String(Math.floor(totalSec / 60)).padStart(2, '0');
+            const seconds = String(totalSec % 60).padStart(2, '0');
+            const millis = String(Math.floor((ms % 1000) / 10)).padStart(2, '0');
+            return `${minutes}:${seconds}.${millis}`;
+        }
+
+        function updateBestDisplay() {
+            const b = bestLapTimes[currentCar.id];
+            bestTimeEl.textContent = `Nejlepší kolo: ${b ? formatTime(b) : '--:--.--'}`;
+            lastTimeEl.textContent = `Poslední kolo: ${lastLapTime ? formatTime(lastLapTime) : '--:--.--'}`;
+            carNameEl.textContent = `VŮZ: ${currentCar.name}`;
+        }
+
+        function setManual(v) {
+            state.isManual = v;
+            transEl.textContent = v ? 'REŽIM: MANUÁL [T]' : 'REŽIM: AUTOMAT [T]';
+            document.getElementById('btn-manual').classList.toggle('active', v);
+            document.getElementById('btn-auto').classList.toggle('active', !v);
+        }
+
+        function resetCar() {
+            state.x = 0; state.z = START_Z; state.angle = 0; state.velAngle = 0;
+            state.speed = 0; state.gear = 1; state.steeringAngle = 0;
+            state.throttle = 0; state.rpm = 0.12; state.shake = 0; state.vib = 0; state.slip = 0;
+            prev.x = state.x; prev.z = state.z; prev.angle = state.angle;
+            startTime = null;
+            currentTimeEl.textContent = '00:00.00';
+            updateBestDisplay();
+        }
+
+        const CORNERS = [[-1.0, -2.2], [1.0, -2.2], [-1.0, 2.2], [1.0, 2.2]];
+        let lastThump = 0;
+
+        function collideWalls() {
+            let hit = false, hnx = 0, hnz = 0;
+            const limit = WALL_IN - 0.15;
+            for (let pass = 0; pass < 2; pass++) {
+                for (const c of CORNERS) {
+                    const ca = Math.cos(state.angle), sa = Math.sin(state.angle);
+                    const wx = state.x + c[0] * ca + c[1] * sa;
+                    const wz = state.z - c[0] * sa + c[1] * ca;
+                    const q = nearestSample(wx, wz);
+                    const over = q.d - limit;
+                    if (over > 0) {
+                        let nx = wx - cx[q.i], nz = wz - cz[q.i];
+                        const l = Math.hypot(nx, nz) || 1;
+                        nx /= l; nz /= l;
+                        state.x -= nx * over;
+                        state.z -= nz * over;
+                        hit = true; hnx = nx; hnz = nz;
+                    }
+                }
+            }
+            if (!hit) return;
+
+            const dir = state.speed >= 0 ? 1 : -1;
+            const mx = -Math.sin(state.velAngle) * dir;
+            const mz = -Math.cos(state.velAngle) * dir;
+            const mn = mx * hnx + mz * hnz;
+            if (mn > 0) {
+                const strength = mn * Math.abs(state.speed);
+                state.speed *= (1 - 0.7 * mn);
+                if (dir > 0) {
+                    const dhx = -Math.cos(state.velAngle), dhz = Math.sin(state.velAngle);
+                    const s = dhx * hnx + dhz * hnz;
+                    const da = -0.25 * mn * s * 4;
+                    const clamped = Math.max(-0.12, Math.min(0.12, da));
+                    state.angle += clamped;
+                    state.velAngle += clamped;
+                }
+                state.shake = Math.min(1, state.shake + strength * 0.6);
+                const now = performance.now();
+                if (strength > 0.25 && now - lastThump > 150) {
+                    lastThump = now;
+                    thump(strength);
+                }
+            }
+        }
+
+        function physicsStep() {
+            const car = currentCar;
+            prev.x = state.x; prev.z = state.z; prev.angle = state.angle;
+
+            if (keys.w) {
+                if (state.gear === -1 && Math.abs(state.speed) < 0.02) state.gear = 1;
+                else if (state.gear === 0 || state.gear === -1) state.gear = 1;
+            }
+            if (keys.s) {
+                if (state.gear > 0 && Math.abs(state.speed) < 0.02) state.gear = -1;
+            }
+            if (!state.isManual && state.gear > 0) {
+                const curMax = G(state.gear).maxSpeed;
+                if (state.speed / curMax > 0.85 && state.gear < 5) state.gear++;
+                else if (state.gear > 1 && state.speed < G(state.gear - 1).maxSpeed * 0.5) state.gear--;
+            } else if (state.isManual && state.gear > 1) {
+                if (state.speed < G(state.gear - 1).maxSpeed * 0.5) {
+                    state.gear--;
+                }
+            }
+
+            const activeGear = G(state.gear);
+
+            const here = surfaceAt(state.x, state.z);
+            state.surface = here.type;
+            let accelFactor = 1, rolling = 0.985, gripNow = car.grip, steerMul = 1, brakeMul = 1;
+            if (here.type === 'kerb') {
+                accelFactor = 0.9; rolling = 0.982; gripNow = car.grip * 0.8;
+            } else if (here.type === 'gravel') {
+                accelFactor = 0.35; rolling = 0.94; gripNow = car.grip * 0.28; steerMul = 0.75; brakeMul = 0.6;
+            }
+
+            if (keys.w) {
+                if (state.gear > 0) {
+                    if (state.speed < activeGear.maxSpeed) state.speed += activeGear.accel * accelFactor;
+                    else state.speed = THREE.MathUtils.lerp(state.speed, activeGear.maxSpeed, 0.05);
+                }
+            } else {
+                state.speed *= rolling;
+            }
+
+            if (keys.s) {
+                if (state.speed > 0.05) state.speed -= car.brake * brakeMul;
+                else if (state.gear === -1 && state.speed > activeGear.maxSpeed) state.speed -= 0.01 * accelFactor;
+                else state.speed *= 0.9;
+            }
+            if (!keys.w && !keys.s && Math.abs(state.speed) < 0.005) state.speed = 0;
+
+            if (here.type === 'gravel') {
+                const cap = 0.85;
+                if (state.speed > cap) state.speed += (cap - state.speed) * 0.04;
+                state.speed *= 0.994;
+            } else if (here.type === 'kerb') {
+                state.speed *= 0.9985;
+            }
+
+            const targetSteer = (keys.a ? 1 : 0) - (keys.d ? 1 : 0);
+            state.steeringAngle = THREE.MathUtils.lerp(state.steeringAngle, targetSteer * 0.45 * car.steer * steerMul, 0.15);
+            if (Math.abs(state.speed) > 0.01) {
+                const reverseFactor = state.speed > 0 ? 1 : -1;
+                const speedFactor = 1 / (1 + Math.abs(state.speed) * 0.8);
+                state.angle += state.steeringAngle * 0.035 * speedFactor * reverseFactor * 2.8;
+            }
+
+            state.velAngle += (state.angle - state.velAngle) * gripNow;
+            state.slip = Math.abs(state.angle - state.velAngle);
+            if (Math.abs(state.speed) > 0.1) state.speed *= 1 - Math.min(state.slip, 0.8) * 0.025;
+
+            const steps = Math.max(1, Math.ceil(Math.abs(state.speed) / 0.8));
+            for (let i = 0; i < steps; i++) {
+                state.x -= Math.sin(state.velAngle) * state.speed / steps;
+                state.z -= Math.cos(state.velAngle) * state.speed / steps;
+                collideWalls();
+            }
+
+            let vibTarget = 0;
+            if (Math.abs(state.speed) > 0.15) {
+                if (state.surface === 'kerb') vibTarget = 1;
+                else if (state.surface === 'gravel') vibTarget = 0.7;
+            }
+            state.vib += (vibTarget - state.vib) * 0.25;
+            state.shake *= 0.9;
+            state.throttle += ((keys.w ? 1 : 0) - state.throttle) * 0.2;
+
+            // Průjezd cílem a odeslání rekordu do online žebříčku
+            if (prev.z > 0 && state.z <= 0 && Math.abs(state.x) < halfW && state.speed > 0) {
+                const now = performance.now();
+                if (startTime === null) {
+                    startTime = now;
+                } else {
+                    const lapTime = Math.round(now - startTime);
+                    if (lapTime > 5000) {
+                        lastLapTime = lapTime;
+                        if (!bestLapTimes[car.id] || lapTime < bestLapTimes[car.id]) {
+                            bestLapTimes[car.id] = lapTime;
+                            // Odeslání nového osobního rekordu s tímto vozem do Firebase
+                            if (window.metoDB) {
+                                window.metoDB.saveScore(playerName, car.name, lapTime);
+                            }
+                        }
+                        startTime = now;
+                        updateBestDisplay();
+                    }
+                }
+            }
+
+            let target = 0;
+            if (state.gear > 0) target = Math.max(0, Math.min(1, Math.abs(state.speed) / activeGear.maxSpeed));
+            else if (state.gear === -1) target = Math.min(1, Math.abs(state.speed) / 0.6);
+            target = Math.max(0.12 + (keys.w ? 0.1 : 0), target);
+            state.rpm += (target - state.rpm) * 0.25;
+        }
+
+        // =====================================================================
+        // 6. ZVUK (WebAudio)
+        // =====================================================================
+        const audio = { ctx: null };
+        let masterVol = 0.6;
+
+        function initAudio() {
+            if (audio.ctx) {
+                if (audio.ctx.state === 'suspended') audio.ctx.resume();
+                return;
+            }
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return;
+            const ctx = new AC();
+            audio.ctx = ctx;
+
+            audio.master = ctx.createGain();
+            audio.master.gain.value = masterVol;
+            audio.master.connect(ctx.destination);
+
+            audio.engineGain = ctx.createGain();
+            audio.engineGain.gain.value = 0;
+            audio.engineFilter = ctx.createBiquadFilter();
+            audio.engineFilter.type = 'lowpass';
+            audio.engineFilter.Q.value = 1.2;
+            audio.engineFilter.connect(audio.engineGain);
+            audio.engineGain.connect(audio.master);
+
+            audio.oscs = [];
+            [['sawtooth', 1, 0.5], ['square', 0.5, 0.22], ['sawtooth', 1.006, 0.35]].forEach(([type, mult, gain]) => {
+                const o = ctx.createOscillator();
+                o.type = type;
+                const g = ctx.createGain();
+                g.gain.value = gain;
+                o.connect(g);
+                g.connect(audio.engineFilter);
+                o.start();
+                audio.oscs.push({ o, mult });
+            });
+
+            const len = ctx.sampleRate * 2;
+            const nb = ctx.createBuffer(1, len, ctx.sampleRate);
+            const data = nb.getChannelData(0);
+            for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+
+            function noiseChain(q) {
+                const src = ctx.createBufferSource();
+                src.buffer = nb;
+                src.loop = true;
+                const f = ctx.createBiquadFilter();
+                f.type = 'bandpass';
+                f.Q.value = q;
+                const g = ctx.createGain();
+                g.gain.value = 0;
+                src.connect(f); f.connect(g); g.connect(audio.master);
+                src.start();
+                return { f, g };
+            }
+            audio.squeal = noiseChain(9);
+            audio.rough = noiseChain(0.8);
+            applyCarAudio();
+        }
+
+        function applyCarAudio() {
+            if (!audio.ctx) return;
+            audio.oscs[0].o.type = currentCar.wave;
+            audio.oscs[2].o.type = currentCar.wave;
+        }
+
+        function thump(strength) {
+            if (!audio.ctx || !gameActive) return;
+            const ctx = audio.ctx, t = ctx.currentTime;
+            const o = ctx.createOscillator();
+            const g = ctx.createGain();
+            o.type = 'sine';
+            o.frequency.setValueAtTime(110, t);
+            o.frequency.exponentialRampToValueAtTime(35, t + 0.25);
+            g.gain.setValueAtTime(Math.min(0.9, 0.25 + strength * 0.5), t);
+            g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+            o.connect(g); g.connect(audio.master);
+            o.start(t); o.stop(t + 0.32);
+        }
+
+        function updateAudio() {
+            if (!audio.ctx || !gameActive) return;
+            const ctx = audio.ctx, t = ctx.currentTime, car = currentCar;
+            const rn = THREE.MathUtils.clamp((state.rpm - 0.1) / 0.9, 0, 1);
+            const rpm = car.idleRpm + (car.maxRpm - car.idleRpm) * rn;
+            const f = rpm / 60 * car.cyl / 2;
+            audio.oscs.forEach(({ o, mult }) => o.frequency.setTargetAtTime(f * mult, t, 0.03));
+            audio.engineFilter.frequency.setTargetAtTime(400 + rn * 2600 + state.throttle * 700, t, 0.05);
+            const eg = menuOpen ? 0.03 : 0.05 + 0.10 * state.throttle + 0.05 * rn;
+            audio.engineGain.gain.setTargetAtTime(eg, t, 0.05);
+
+            const spd = Math.min(1, Math.abs(state.speed) / 1.2);
+            const hard = state.surface !== 'gravel';
+            const sq = (menuOpen || !hard) ? 0 : THREE.MathUtils.clamp((state.slip - 0.1) * 4, 0, 1) * spd * 0.14;
+            audio.squeal.g.gain.setTargetAtTime(sq, t, 0.05);
+            audio.squeal.f.frequency.setTargetAtTime(1300 + Math.abs(state.speed) * 400, t, 0.1);
+
+            let rg = 0, rf = 200;
+            if (!menuOpen) {
+                if (state.surface === 'kerb') { rg = 0.35 * spd; rf = 140; }
+                else if (state.surface === 'gravel') { rg = 0.22 * spd; rf = 900; }
+            }
+            audio.rough.g.gain.setTargetAtTime(rg, t, 0.05);
+            audio.rough.f.frequency.setTargetAtTime(rf, t, 0.05);
+        }
+
+        // =====================================================================
+        // 7. MENU
+        // =====================================================================
+        const cardsEl = document.getElementById('car-cards');
+        function statRow(label, v) {
+            return `<div class="stat"><span>${label}</span><div class="bar"><div style="width:${v * 20}%"></div></div></div>`;
+        }
+        CARS.forEach((c, i) => {
+            const card = document.createElement('div');
+            card.className = 'car-card';
+            const hex = '#' + c.color.toString(16).padStart(6, '0');
+            card.innerHTML =
+                `<div class="car-swatch" style="background:${hex}"></div>` +
+                `<div class="car-info"><div class="car-name">${i + 1}. ${c.name}</div>` +
+                `<div class="car-desc">${c.desc}</div>` +
+                `<div class="stats">${statRow('Rychlost', c.stats.speed)}${statRow('Zrychlení', c.stats.accel)}${statRow('Přilnavost', c.stats.grip)}${statRow('Ovladatelnost', c.stats.handling)}</div></div>`;
+            card.addEventListener('click', () => { selectCar(i); if (document.activeElement) document.activeElement.blur(); });
+            cardsEl.appendChild(card);
+        });
+
+        function highlightCards() {
+            Array.from(cardsEl.children).forEach((el, i) => el.classList.toggle('active', i === currentCarIndex));
+        }
+
+        function selectCar(i) {
+            if (i < 0 || i >= CARS.length) return;
+            setCar(i);
+            resetCar();
+            highlightCards();
+        }
+
+        function toggleMenu() {
+            menuOpen = !menuOpen;
+            menuEl.classList.toggle('hidden', !menuOpen);
+            if (menuOpen) {
+                menuOpenedAt = performance.now();
+                keys.w = keys.s = keys.a = keys.d = false;
+            } else if (startTime !== null) {
+                startTime += performance.now() - menuOpenedAt;
+            }
+            if (document.activeElement) document.activeElement.blur();
+        }
+
+        document.getElementById('btn-close').addEventListener('click', toggleMenu);
+        document.getElementById('btn-manual').addEventListener('click', () => { setManual(true); document.activeElement.blur(); });
+        document.getElementById('btn-auto').addEventListener('click', () => { setManual(false); document.activeElement.blur(); });
+        document.getElementById('vol').addEventListener('input', (e) => {
+            masterVol = e.target.value / 100;
+            if (audio.master) audio.master.gain.value = masterVol;
+        });
+        document.getElementById('vol').addEventListener('change', (e) => e.target.blur());
+
+        // =====================================================================
+        // 8. VSTUPY
+        // =====================================================================
+        window.addEventListener('keydown', (e) => {
+            if (!gameActive) return;
+            initAudio();
+            const k = e.key.toLowerCase();
+            if (e.code === 'Space') e.preventDefault();
+            if (k.startsWith('arrow')) e.preventDefault();
+            if (e.repeat && (k === 'm' || k === 't' || k === 'c' || k === 'r' || k === 'shift' || e.code === 'Space')) return;
+
+            if (k === 'm') { toggleMenu(); return; }
+            if (menuOpen) {
+                if (k === 'escape') toggleMenu();
+                if (k === '1' || k === '2' || k === '3') selectCar(parseInt(k, 10) - 1);
+                return;
+            }
+
+            if (keyMap[k]) keys[keyMap[k]] = true;
+            if (k === 't') setManual(!state.isManual);
+            if (k === 'c') state.cockpitView = !state.cockpitView;
+            if (k === 'r') resetCar();
+
+            if (e.code === 'Space' && state.isManual) {
+                const gMax = G(state.gear).maxSpeed;
+                const ratio = gMax > 0 ? state.speed / gMax : 0;
+                if (state.gear >= 1 && state.gear < 5 && ratio >= 0.75) state.gear++;
+            }
+            if (k === 'shift' && state.isManual && state.gear > 1) {
+                if (state.speed <= G(state.gear - 1).maxSpeed * 1.05) state.gear--;
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (!gameActive) return;
+            const k = e.key.toLowerCase();
+            if (e.code === 'Space') e.preventDefault();
+            if (keyMap[k]) keys[keyMap[k]] = false;
+        });
+
+        window.addEventListener('blur', () => { keys.w = keys.s = keys.a = keys.d = false; });
+        window.addEventListener('mousedown', () => { if (gameActive) initAudio(); });
+
+        // =====================================================================
+        // 9. MINIMAPA
+        // =====================================================================
+        const minimapCanvas = document.getElementById('minimap-canvas');
+        const minimapCtx = minimapCanvas.getContext('2d');
+
+        function drawMinimap(px, pz, pa) {
+            minimapCtx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
+            minimapCtx.save();
+            const mapScale = 0.3;
+            minimapCtx.translate(minimapCanvas.width / 2, minimapCanvas.height / 2);
+            minimapCtx.rotate(-pa);
+            minimapCtx.translate(-px * mapScale, -pz * mapScale);
+            minimapCtx.lineJoin = 'round';
+
+            function path() {
+                minimapCtx.beginPath();
+                for (let i = 0; i <= N; i += 3) {
+                    const s = samples[Math.min(i, N)];
+                    if (i === 0) minimapCtx.moveTo(s.x * mapScale, s.z * mapScale);
+                    else minimapCtx.lineTo(s.x * mapScale, s.z * mapScale);
+                }
+                minimapCtx.closePath();
+                minimapCtx.stroke();
+            }
+
+            minimapCtx.lineWidth = (trackWidth + gravelWidth * 2) * mapScale;
+            minimapCtx.strokeStyle = '#8a7968';
+            path();
+            minimapCtx.lineWidth = trackWidth * mapScale;
+            minimapCtx.strokeStyle = '#141414';
+            path();
+
+            minimapCtx.fillStyle = '#34c759';
+            minimapCtx.beginPath();
+            minimapCtx.arc(0, 0, 5, 0, Math.PI * 2);
+            minimapCtx.fill();
+            minimapCtx.restore();
+
+            minimapCtx.fillStyle = '#ff3b30';
+            minimapCtx.beginPath();
+            minimapCtx.arc(minimapCanvas.width / 2, minimapCanvas.height / 2, 5, 0, Math.PI * 2);
+            minimapCtx.fill();
+        }
+
+        // =====================================================================
+        // 10. VYKRESLENÍ A HLAVNÍ SMYČKA
+        // =====================================================================
+        const DT = 1 / 60;
+        let lastFrame = performance.now();
+        let acc = 0;
+        const camBase = new THREE.Vector3(0, 4, 20);
+        const UP = new THREE.Vector3(0, 1, 0);
+
+        function render(now, dt, alpha) {
+            const rx = prev.x + (state.x - prev.x) * alpha;
+            const rz = prev.z + (state.z - prev.z) * alpha;
+            const ra = prev.angle + (state.angle - prev.angle) * alpha;
+
+            carGroup.position.set(rx, Math.sin(now * 0.09) * 0.04 * state.vib, rz);
+            carGroup.rotation.y = ra;
+            carGroup.rotation.z = Math.sin(now * 0.071) * 0.02 * state.vib;
+
+            wheels[0].rotation.y = state.steeringAngle;
+            wheels[1].rotation.y = state.steeringAngle;
+            wheels.forEach(w => {
+                w.children[0].rotation.x -= state.speed * 1.5 * dt * 60;
+                w.children[1].rotation.x -= state.speed * 1.5 * dt * 60;
+            });
+            tailLightMat.color.setHex(keys.s ? 0xff0000 : 0x660000);
+
+            dirLight.position.set(rx + 100, 150, rz + 100);
+            dirLight.target.position.set(rx, 0, rz);
+
+            const shakeAmt = state.shake * 0.5 + state.vib * 0.05;
+            if (state.cockpitView) {
+                const cp = new THREE.Vector3(0, 1.25, -0.1).applyAxisAngle(UP, ra).add(carGroup.position);
+                camBase.copy(cp);
+                camera.position.copy(cp);
+                const look = new THREE.Vector3(0, 1.2, -5).applyAxisAngle(UP, ra).add(carGroup.position);
+                camera.position.x += (Math.random() - 0.5) * shakeAmt;
+                camera.position.y += (Math.random() - 0.5) * shakeAmt;
+                camera.lookAt(look);
+            } else {
+                const ideal = new THREE.Vector3(0, 3.8, 8.5).applyAxisAngle(UP, ra).add(carGroup.position);
+                camBase.lerp(ideal, 1 - Math.pow(1 - 0.12, dt * 60));
+                camera.position.set(
+                    camBase.x + (Math.random() - 0.5) * shakeAmt,
+                    camBase.y + (Math.random() - 0.5) * shakeAmt,
+                    camBase.z + (Math.random() - 0.5) * shakeAmt
+                );
+                camera.lookAt(carGroup.position.x, carGroup.position.y + 1.2, carGroup.position.z);
+            }
+            const targetFov = 60 + Math.min(1, Math.abs(state.speed) / 3) * 12;
+            if (Math.abs(camera.fov - targetFov) > 0.05) {
+                camera.fov += (targetFov - camera.fov) * 0.08;
+                camera.updateProjectionMatrix();
+            }
+
+            const speedKmh = Math.round(Math.abs(state.speed) * 95);
+            speedEl.textContent = speedKmh;
+            gearEl.textContent = state.gear === -1 ? 'R' : (state.gear === 0 ? 'N' : state.gear);
+            rpmBarEl.style.width = `${Math.min(1, state.rpm) * 100}%`;
+
+            const lit = state.rpm < 0.5 ? 0 : Math.min(LED_COUNT, Math.ceil((state.rpm - 0.5) / 0.5 * LED_COUNT));
+            leds.forEach((d, i) => {
+                d.className = 'led' + (i < lit ? (i < 4 ? ' on-g' : (i < 7 ? ' on-y' : ' on-r')) : '');
+            });
+
+            const showShift = state.isManual && state.gear > 0 && state.gear < 5 && state.rpm >= 0.75;
+            shiftArrowEl.classList.toggle('hidden', !showShift);
+
+            if (startTime !== null && !menuOpen) currentTimeEl.textContent = formatTime(performance.now() - startTime);
+
+            drawMinimap(rx, rz, ra);
+            updateAudio();
+            renderer.render(scene, camera);
+        }
+
+        function animate(now) {
+            requestAnimationFrame(animate);
+            if (!gameActive) return;
+
+            let dt = (now - lastFrame) / 1000;
+            lastFrame = now;
+            if (dt > 0.1) dt = 0.1;
+            if (dt < 0) dt = 0;
+
+            if (!menuOpen) {
+                acc += dt;
+                let n = 0;
+                while (acc >= DT && n < 5) { physicsStep(); acc -= DT; n++; }
+                if (n === 5) acc = 0;
+            }
+            render(now, dt, menuOpen ? 1 : acc / DT);
+        }
+
+        function onResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        window.addEventListener('resize', onResize);
+
+        // Inicializace
+        setCar(0);
+        setManual(false);
+        resetCar();
+        highlightCards();
+        camBase.set(0, 3.8, START_Z + 8.5);
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
